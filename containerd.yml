@@ -7,9 +7,6 @@
     - include: install/golang.yml
     - include: install/clearcontainers.yml
       when: runtime == "containerd"
-   
-    - name: Checking Variables
-      command: echo "Value is {{CONTAINERD_VERSION}}"
  
     - name: Make sure we have all required packages on Fedora
       dnf:
