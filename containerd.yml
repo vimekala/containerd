@@ -1,0 +1,175 @@
+---
+- hosts: all
+  become: true
+  tasks:
+    - include: install/os_updates.yml
+    - include: install/kubernetes.yml
+    - include: install/golang.yml
+    - include: install/clearcontainers.yml
+      when: runtime == "containerd"
+   
+    - name: Checking Variables
+      command: echo "Value is {{CONTAINERD_VERSION}}"
+ 
+    - name: Make sure we have all required packages on Fedora
+      dnf:
+        name: "{{ item }}"
+        state: latest
+      with_items:
+        - btrfs-progs-devel
+        - container-selinux
+        - device-mapper-devel
+        - gcc
+        - git
+        - glib2-devel
+        - glibc-devel
+        - glibc-static
+        - go-md2man
+        - golang
+        - gpgme-devel
+        - iptables
+        - libassuan-devel
+        - libgpg-error-devel
+        - libseccomp-devel
+        - make
+        - pkgconfig
+        - skopeo-containers
+        - tar
+        - wget
+      when: ansible_distribution == 'Fedora'
+
+    - name: Make sure we have all required packages on RHEL/CentOS
+      yum:
+        name: "{{ item }}"
+        state: latest
+      with_items:
+        - btrfs-progs-devel
+        - container-selinux
+        - device-mapper-devel
+        - gcc
+        - git
+        - glib2-devel
+        - glibc-devel
+        - glibc-static
+        - go-md2man
+        - golang
+        - gpgme-devel
+        - json-glib-devel
+        - libassuan-devel
+        - libgpg-error-devel
+        - libseccomp-devel
+        - make
+        - pkgconfig
+        - skopeo-containers
+        - tar
+        - wget
+      when: ansible_distribution in ['RedHat', 'CentOS']
+
+    - name: Make sure we have all required packages on Ubuntu
+      package:
+        name: "{{ item }}"
+        state: latest
+      with_items:
+        - apt-transport-https
+        - aptitude
+        - btrfs-tools
+        - build-essential
+        - curl
+        - gawk
+        - iptables
+        - libaio-dev
+        - libapparmor-dev
+        - libcap-dev
+        - libdevmapper-dev
+        - libdevmapper1.02.1
+        - libglib2.0-dev
+        - libgpgme11-dev
+        - libjson-glib-dev
+        - libprotobuf-dev
+        - libseccomp-dev
+        - libseccomp2
+        - pkg-config
+        - protobuf-compiler
+        - python-minimal
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Make directories
+      file:
+        path: "{{ item }}"
+        state: directory
+      with_items:
+           - /usr/local/go
+           - /etc/systemd/system/kubelet.service.d/
+           - /var/lib/etcd
+           - /etc/cni/net.d
+           - /etc/containers
+
+    - name: modprobe br_netfilter
+      command: "modprobe br_netfilter"
+      ignore_errors: true
+
+    - name: modprobe overlay
+      command: "modprobe overlay"
+      ignore_errors: true
+
+    - name: tune sysctl
+      blockinfile:
+        path: /etc/sysctl.conf
+        insertafter: 'EOF'
+        state: present
+        block: |
+           net/bridge/bridge-nf-call-iptables = 1
+           net/ipv4/ip_forward = 1
+           net/bridge/bridge-nf-call-ip6tables = 1
+      ignore_errors: true
+
+    - name: reload sysctl
+      command: "sysctl -p"
+      ignore_errors: true
+    
+    - name: install containerd
+      shell: |
+              sh -c "yum install wget -y &&\
+              wget https://storage.googleapis.com/cri-containerd-release/cri-containerd-{{CONTAINERD_VERSION}}.linux-amd64.tar.gz &&\
+              tar xzf cri-containerd-{{CONTAINERD_VERSION}}.linux-amd64.tar.gz -C /"
+
+    - name: Containerd RUNTIME for kubeadm
+      shell: |
+              sh -c 'echo "[Service]
+              Environment=\"KUBELET_EXTRA_ARGS=--container-runtime=remote --runtime-request-timeout=15m  --container-runtime-endpoint=unix:///run/containerd/containerd.sock\"" > /etc/systemd/system/kubelet.service.d/0-containerd.conf'
+
+    - name: flush iptables
+      command: "iptables -F"
+
+    - name: Permanently disable selinux
+      lineinfile:
+        dest: /etc/selinux/config
+        line: 'SELINUX=permissive'
+        regexp: '^SELINUX='
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: disable selinux
+      command: "setenforce 0"
+      ignore_errors: true
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: reset kubeadm 
+      command: "kubeadm reset -f"
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: reload daemon
+      command: "systemctl daemon-reload"
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: restart containerd
+      command: "systemctl restart containerd"
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: enable kubelet
+      command: "systemctl enable kubelet"
+      ignore_errors: true
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: restart kubelet
+      command: "systemctl restart kubelet"
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
