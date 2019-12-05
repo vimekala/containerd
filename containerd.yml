@@ -158,6 +158,10 @@
       command: "systemctl daemon-reload"
       when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
 
+    - name: enable containerd
+      command: "systemctl enable containerd"
+      when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
+      
     - name: restart containerd
       command: "systemctl restart containerd"
       when: ansible_distribution in ['Fedora', 'RedHat', 'CentOS']
